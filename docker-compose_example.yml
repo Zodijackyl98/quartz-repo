@@ -1,0 +1,16 @@
+services:
+  quartz:
+    image: vasujain275/dockerized-quartz:latest
+    container_name: quartz-notes_v5
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Istanbul
+      - VAULT_DO_GIT_PULL_ON_UPDATE=true
+      # - NOTIFY_TARGET=pover://user@token  # Optional Apprise notification string
+    volumes:
+      # Mount your actual markdown vault directory here
+      - /path/to/your/local/vault:/vault
+      # The critical patch link: mounts the local script over the container's default v4 logic
+      - ./build-quartz-patched.sh:/usr/src/app/scripts/build-quartz.sh:ro
+    ports:
+      - "8080:80"
