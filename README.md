@@ -1,7 +1,7 @@
 
 # Quartz v5 & Docker Deployment
 
-This branch is optimized for deploying **Quartz v5** using a containerized workflow. Because the core Docker image (`vasujain275/dockerized-quartz`) was originally designed around Quartz v4 logic, this repository includes a custom runtime patch to natively support Quartz v5's plugin ecosystem.
+This branch is optimized for deploying **Quartz v5** using a containerized workflow. Because the core Docker image (`vasujain275/dockerized-quartz`) was originally designed around Quartz v4 logic, this repository includes custom runtime patches to natively support Quartz v5's plugin ecosystem and to fix webhook-triggered rebuilds.
 
 ---
 
@@ -16,18 +16,32 @@ The included `build-quartz-patched.sh` script intercepts the container's interna
 
 ---
 
+## What the Patch Server Does (`server.js`)
+
+The image's built-in webhook listener accepts a `POST /rebuild/<secret>` request and triggers `build-quartz-patched.sh` to rebuild the site — but its default implementation waits for the entire build to finish before sending an HTTP response. On a full Quartz v5 build (plugin install + parse + emit), that easily exceeds GitHub's ~10 second webhook delivery timeout, so every push was reported as a failed delivery even though the rebuild succeeded moments later in the background.
+
+The included `server.js` patches this by responding immediately once the secret is validated, then running the build asynchronously:
+1. **Validates the secret:** Rejects with `403` if the path segment doesn't match `REBUILD_WEBHOOK_SECRET`.
+2. **Responds immediately:** Sends `202 Accepted` before the build starts, so GitHub's webhook delivery succeeds instantly regardless of build duration.
+3. **Builds in the background:** Runs `build-quartz-patched.sh` via `exec()` after the response is already sent, logging success or failure to the container's stdout/stderr rather than blocking the request.
+
+> **Note:** because the response no longer waits on the build, a failed build will not be visible in GitHub's delivery status — check `docker logs` (or your `apprise` notification setup) if a rebuild doesn't show up on the live site.
+
+---
+
 ## Getting Started
 
 ### Prerequisites
-Make sure you keep the layout unified. The custom build script **must reside in the exact same directory** as your active `docker-compose.yml` file so Docker can locate and bind-mount it successfully.
+Make sure you keep the layout unified. The custom build script and webhook server **must reside in the exact same directory** as your active `docker-compose.yml` file so Docker can locate and bind-mount them successfully.
 
 ```text
 your-workspace/
 ├── docker-compose.yml
-└── build-quartz-patched.sh
+├── build-quartz-patched.sh
+└── server.js
 ```
 
-> “[One] who works with the door open gets all kinds of interruptions, but [they] also occasionally gets clues as to what the world is and what might be important.” — Richard Hamming
+> "[One] who works with the door open gets all kinds of interruptions, but [they] also occasionally gets clues as to what the world is and what might be important." — Richard Hamming
 
 Quartz is a set of tools that helps you publish your [digital garden](https://jzhao.xyz/posts/networked-thought) and notes as a website for free.
 
